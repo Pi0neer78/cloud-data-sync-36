@@ -276,6 +276,11 @@ function contactsToVcf(contacts: VcfContact[]): string {
       lines.push(`PHOTO;VALUE=URI:${c.photo}`);
     }
 
+    // Extra fields — сохраняем как есть
+    c.extraFields.forEach((f) => {
+      if (f.key && f.value) lines.push(`${f.key}:${f.value}`);
+    });
+
     lines.push("END:VCARD");
     return lines.join("\r\n");
   }).join("\r\n");
