@@ -246,29 +246,94 @@ function parseVcf(content: string): VcfContact[] {
       org, title, note, photo, photoType,
       birthday, address, url,
       extraFields,
-      raw: rawLines,
+      raw: lines,
     };
   });
+}
+
+// Keys that are fully regenerated from editor fields; all others kept from raw
+const REGENERATED_KEYS = new Set(["BEGIN","END","VERSION","FN","N","TEL","EMAIL","ORG","TITLE","NOTE","BDAY","ADR","URL","PHOTO"]);
+
+function rawLineKey(line: string): string {
+  return line.split(/[;:]/)[0].toUpperCase();
 }
 
 function contactsToVcf(contacts: VcfContact[]): string {
   return contacts.map((c) => {
     const fn = c.fn || `${c.lastName} ${c.firstName} ${c.middleName}`.trim();
-    const lines = [
+
+    // Start with mandatory header
+    const lines: string[] = [
       "BEGIN:VCARD",
       "VERSION:3.0",
       `FN:${fn}`,
       `N:${c.lastName};${c.firstName};${c.middleName};;`,
-      ...c.phones.filter(Boolean).map((p) => `TEL;CELL:${p}`),
-      ...c.emails.filter(Boolean).map((e) => `EMAIL:${e}`),
-      c.org      ? `ORG:${c.org}`         : "",
-      c.title    ? `TITLE:${c.title}`     : "",
-      c.note     ? `NOTE:${c.note}`       : "",
-      c.birthday ? `BDAY:${c.birthday}`   : "",
-      c.address  ? `ADR:;;${c.address};;;;` : "",
-      c.url      ? `URL:${c.url}`         : "",
-    ].filter(Boolean);
+    ];
 
+    // TEL — keep original lines when phone value matches, otherwise write new
+    const origTelLines = (c.raw || []).filter((l) => rawLineKey(l) === "TEL");
+    const editedPhones = c.phones.filter(Boolean);
+    if (origTelLines.length === editedPhones.length) {
+      // same count — replace only values, keep original params (TYPE= etc.)
+      origTelLines.forEach((origLine, idx) => {
+        const colonIdx = origLine.indexOf(":");
+        const prefix = colonIdx !== -1 ? origLine.slice(0, colonIdx) : origLine;
+        lines.push(`${prefix}:${editedPhones[idx]}`);
+      });
+    } else {
+      // count changed — use original lines where they exist, append new ones
+      origTelLines.forEach((origLine, idx) => {
+        if (idx < editedPhones.length) {
+          const colonIdx = origLine.indexOf(":");
+          const prefix = colonIdx !== -1 ? origLine.slice(0, colonIdx) : origLine;
+          lines.push(`${prefix}:${editedPhones[idx]}`);
+        }
+      });
+      for (let i = origTelLines.length; i < editedPhones.length; i++) {
+        lines.push(`TEL;CELL:${editedPhones[i]}`);
+      }
+    }
+
+    // EMAIL — same strategy
+    const origEmailLines = (c.raw || []).filter((l) => rawLineKey(l) === "EMAIL");
+    const editedEmails = c.emails.filter(Boolean);
+    if (origEmailLines.length === editedEmails.length) {
+      origEmailLines.forEach((origLine, idx) => {
+        const colonIdx = origLine.indexOf(":");
+        const prefix = colonIdx !== -1 ? origLine.slice(0, colonIdx) : origLine;
+        lines.push(`${prefix}:${editedEmails[idx]}`);
+      });
+    } else {
+      origEmailLines.forEach((origLine, idx) => {
+        if (idx < editedEmails.length) {
+          const colonIdx = origLine.indexOf(":");
+          const prefix = colonIdx !== -1 ? origLine.slice(0, colonIdx) : origLine;
+          lines.push(`${prefix}:${editedEmails[idx]}`);
+        }
+      });
+      for (let i = origEmailLines.length; i < editedEmails.length; i++) {
+        lines.push(`EMAIL:${editedEmails[i]}`);
+      }
+    }
+
+    // ORG, TITLE, NOTE, BDAY, URL — simple scalar fields
+    if (c.org)     lines.push(`ORG:${c.org}`);
+    if (c.title)   lines.push(`TITLE:${c.title}`);
+    if (c.note)    lines.push(`NOTE:${c.note}`);
+    if (c.birthday) lines.push(`BDAY:${c.birthday}`);
+    if (c.url)     lines.push(`URL:${c.url}`);
+
+    // ADR — keep original line if exists, else generate
+    const origAdrLine = (c.raw || []).find((l) => rawLineKey(l) === "ADR");
+    if (c.address) {
+      if (origAdrLine) {
+        lines.push(origAdrLine);
+      } else {
+        lines.push(`ADR:;;${c.address};;;;`);
+      }
+    }
+
+    // PHOTO
     if (c.photo && c.photo.startsWith("data:")) {
       const b64 = c.photo.split(",")[1] || "";
       lines.push(`PHOTO;ENCODING=BASE64;TYPE=${c.photoType}:${b64}`);
@@ -276,14 +341,14 @@ function contactsToVcf(contacts: VcfContact[]): string {
       lines.push(`PHOTO;VALUE=URI:${c.photo}`);
     }
 
-    // Extra fields — сохраняем как есть
-    c.extraFields.forEach((f) => {
-      if (f.key && f.value) lines.push(`${f.key}:${f.value}`);
-    });
+    // Preserve all non-regenerated original lines (X-fields, CATEGORIES, etc.)
+    (c.raw || [])
+      .filter((l) => !REGENERATED_KEYS.has(rawLineKey(l)))
+      .forEach((l) => lines.push(l));
 
     lines.push("END:VCARD");
     return lines.join("\r\n");
-  }).join("\r\n");
+  }).join("\r\n\r\n");
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
