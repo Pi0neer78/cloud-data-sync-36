@@ -251,6 +251,21 @@ function parseVcf(content: string): VcfContact[] {
   });
 }
 
+// RFC 6350 line folding: max 75 chars per line, continuation lines start with space
+function foldLine(line: string): string {
+  if (line.length <= 75) return line;
+  let result = "";
+  let pos = 0;
+  let first = true;
+  while (pos < line.length) {
+    const chunkSize = first ? 75 : 74;
+    result += (first ? "" : "\r\n ") + line.slice(pos, pos + chunkSize);
+    pos += chunkSize;
+    first = false;
+  }
+  return result;
+}
+
 // Keys that are fully regenerated from editor fields; all others kept from raw
 const REGENERATED_KEYS = new Set(["BEGIN","END","VERSION","FN","N","TEL","EMAIL","ORG","TITLE","NOTE","BDAY","ADR","URL","PHOTO"]);
 
@@ -347,8 +362,8 @@ function contactsToVcf(contacts: VcfContact[]): string {
       .forEach((l) => lines.push(l));
 
     lines.push("END:VCARD");
-    return lines.join("\r\n");
-  }).join("\r\n\r\n");
+    return lines.map(foldLine).join("\r\n");
+  }).join("\r\n");
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -413,9 +428,7 @@ export default function VcfEditor() {
 
   const handleDownload = () => {
     const content = contactsToVcf(contacts);
-    // UTF-8 BOM + явная кодировка — некоторые телефоны требуют BOM для корректного импорта
-    const bom = "\uFEFF";
-    const blob = new Blob([bom + content], { type: "text/vcard;charset=utf-8" });
+    const blob = new Blob([content], { type: "text/vcard;charset=utf-8" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href = url; a.download = fileName; a.click();
