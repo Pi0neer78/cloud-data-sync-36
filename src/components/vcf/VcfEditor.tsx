@@ -399,7 +399,7 @@ export default function VcfEditor() {
     setFileName(file.name);
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const text = ev.target?.result as string;
+      const text = (ev.target?.result as string).replace(/^\uFEFF/, "");
       const parsed = parseVcf(text);
       parsed.sort((a, b) => a.fn.localeCompare(b.fn, "ru", { sensitivity: "base" }));
       setContacts(parsed);
@@ -413,7 +413,9 @@ export default function VcfEditor() {
 
   const handleDownload = () => {
     const content = contactsToVcf(contacts);
-    const blob = new Blob([content], { type: "text/vcard;charset=utf-8" });
+    // UTF-8 BOM + явная кодировка — некоторые телефоны требуют BOM для корректного импорта
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + content], { type: "text/vcard;charset=utf-8" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href = url; a.download = fileName; a.click();
